@@ -153,7 +153,7 @@ byte outputFrameBuffer[MAX_NUMBER_OF_CHANNELS*2];
  
 void setup()
 {
-  Serial.begin(230400);       //begin Serial comm
+  Serial.begin(2000000);//230400);       //begin Serial comm
   delay(300);                 //whait for init of serial
   Serial.setTimeout(2);
 
@@ -163,6 +163,8 @@ void setup()
   pinMode(SHIFT_DATA_PIN, OUTPUT);
 
   pinMode(2, OUTPUT);//debug
+  pinMode(3, OUTPUT);//debug
+  pinMode(4, OUTPUT);//debug
 
   //status LEDs
   pinMode(OSCILATOR_PIN, OUTPUT);//5kHz oscilator
@@ -219,6 +221,7 @@ void loop()
 {
    if(outputBufferReady == 1)//if we have new data
    {
+    PORTD |= B00001000;//debug
      //write data from outputFrameBuffer
      Serial.write(outputFrameBuffer, 4);
      outputBufferReady = 0;
@@ -377,7 +380,7 @@ void loop()
        
      }
 
-
+    PORTD &= B11110111;//debug
    }//end of (outputBufferReady == 1)
 
 }//end of main loop
@@ -419,6 +422,7 @@ void serialEvent()
       command = strtok(0, ";");
   }
   TIMSK1 |= (1 << OCIE1A);//enable timer for sampling
+
 }
 
 
@@ -444,7 +448,7 @@ PORTD |= B00000100;//debug
   
   //signal main loop to send frame
   outputBufferReady = 1;
-
+  
 }
 
 
@@ -453,7 +457,7 @@ PORTD |= B00000100;//debug
 //This is called when ADC conversion is complete.
 ISR(ADC_vect)           
  {
-
+PORTD |= B00010000;//debug
      
       samplingBuffer[lastADCIndex] = ADCL | (ADCH << 8);// store lower and higher byte of ADC
 
@@ -507,6 +511,7 @@ PORTD &= B11111011;//debug
           adcInterruptIndex = 0;
         }
       }
+ PORTD &= B11101111;//debug
  } 
 
 
