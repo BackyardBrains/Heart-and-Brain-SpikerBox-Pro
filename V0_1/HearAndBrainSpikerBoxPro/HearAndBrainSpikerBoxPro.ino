@@ -42,6 +42,8 @@
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
+#define CURRENT_SHIELD_TYPE "HWT:MUSCLESS;"
+
 #define SIZE_OF_COMMAND_BUFFER 30               //command buffer size
 char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 
@@ -59,7 +61,7 @@ char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 #define SHIFT_DATA_PIN 11                       //serial data pin for shift register
 #define DATA_PIN B00001000
 #define NOT_DATA_PIN B11110111
-
+//D10 Port B 2.bit
 #define OSCILATOR_PIN 10                        //5kHz oscilator pin
 
 #define BLUE_LED_PIN 12                         //blue led
@@ -79,7 +81,7 @@ char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 #define POWER_MODE_LEDS_OFF 3
 byte powerMode = 0;
 unsigned int blinkingLowVoltageTimer = 0;
-#define BLINKING_LOW_VOLTAGE_TIMER_MAX_VALUE 5000
+#define BLINKING_LOW_VOLTAGE_TIMER_MAX_VALUE 500
 
 //D13 port B 5. bit
 #define GREEN_LED B00100000
@@ -147,14 +149,74 @@ volatile uint16_t samplingBuffer[MAX_NUMBER_OF_CHANNELS];
 byte outputBufferReady = 0;
 //Output frame buffer that contains measured EMG data formated according to 
 //SpikeRecorder serial protocol
-byte outputFrameBuffer[MAX_NUMBER_OF_CHANNELS*2];
+byte outputFrameBuffer[MAX_NUMBER_OF_CHANNELS*2+64];
+
+
+#define ESCAPE_SEQUENCE_LENGTH 6
+byte escapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,128,255};
+byte endOfescapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,129,255};
+byte sizeOfextendedPackage = 0;//used when we have to send message and samples
+byte sendExtendedMessage = 0;
+
+void timer1_timer2_init()
+{
+    //-----------------------------
+    //Setting 5kHz timer (Timer 1)
+    
+    //Set CTC mode with WGM
+    //TCCR1A = WGM11 WGM10 ==00
+    cbi(TCCR1A,WGM11);
+    cbi(TCCR1A,WGM10);
+    //TCCR1B = WGM13 WGM12 == 11   or 01
+    cbi(TCCR1B,WGM13);
+    sbi(TCCR1B, WGM12);
+
+    //how pin toggles when timer reaches value (ON,OFF, toggle etc.)
+    cbi(TCCR1A, COM1B1);            //toggle OC1A
+    sbi(TCCR1A, COM1B0);            //toggle OC1A
+    
+    //CS12 CS11 CS10 == 001    no prescaler
+    cbi(TCCR1B, CS11);
+    cbi(TCCR1B, CS12);
+    sbi(TCCR1B, CS10);
+
+   OCR1A = 1600;    //when to reset
+   OCR1B = 900;    //when to toggle (not working)
+
+  //-----------------------------
+  //setting sampling timer (Timer2)
+  //OCIE2B OCIE2A TOIE2
+
+   //enable interrupt for timer 2 A
+   sbi(TIMSK2,OCIE2A);
+   //TIMSK2 = (TIMSK2 & B11111001) | 0x06;
+   //TCCR2B = (TCCR2B & B11111000) | 0x07;
+
+   //CTC
+   sbi(TCCR2A,WGM21);
+   cbi(TCCR2A,WGM20);
+   cbi(TCCR2B,WGM22); 
+
+   //prescaller
+   //TCCR2B   CS22 CS21 CS20  = 001 no prescaling
+   sbi(TCCR2B,CS22);
+   cbi(TCCR2B,CS21);
+   sbi(TCCR2B,CS20);
+
+    //1000Hz ~ 
+    //101    
+    //OCR2A = 124;
+    //change OCRA to change sampling freq 249 for 500Hz and 124 to 1kHz
+   OCR2A = 124;
+   OCR2B = 2;
+}
 
 
  
 void setup()
 {
-  Serial.begin(2000000);//230400);       //begin Serial comm
-  delay(300);                 //whait for init of serial
+  Serial.begin(230400);//230400);       //begin Serial comm
+
   Serial.setTimeout(2);
 
   //set pins to output for shift register
@@ -179,7 +241,7 @@ void setup()
 
   //stop interrupts
   cli();
-  
+ 
   cbi(ADMUX,REFS0);  // Set ADC reference to AVCC
   cbi(ADMUX,ADLAR);// Left Adjust the result
   sbi(ADCSRA,ADEN);// Enable ADC
@@ -190,19 +252,16 @@ void setup()
   cbi(ADCSRA,ADPS1);//0
   cbi(ADCSRA,ADPS0);//0
 
+  
+  
 
-  //set timer1 interrupt
-  TCCR1A = 0;// set entire TCCR1A register to 0
-  TCCR1B = 0;// same for TCCR1B
-  TCNT1  = 0;//initialize counter value to 0;
-  OCR1A = interrupt_Number;// Output Compare Registers 
-  // turn on CTC mode
-  TCCR1B |= (1 << WGM12);
-  // Set CS11 bit for 8 prescaler
-  TCCR1B |= (1 << CS11);   
-  // enable timer compare interrupt
-  TIMSK1 |= (1 << OCIE1A);
+  timer1_timer2_init();
 
+
+
+
+
+  
    //initialize variables for SDC sampling scheme 
    numberOfChannels = 2;
    regularChannelsIndex = 0;
@@ -211,7 +270,7 @@ void setup()
    lastADCIndex = 0;
 
    // Enable Global Interrupts
-   sei();                     
+   sei();                   
 }
 
 
@@ -221,9 +280,16 @@ void loop()
 {
    if(outputBufferReady == 1)//if we have new data
    {
-    PORTD |= B00001000;//debug
+PORTD |= B00001000;//debug
      //write data from outputFrameBuffer
-     Serial.write(outputFrameBuffer, 4);
+     if(sendExtendedMessage)
+     {
+       Serial.write(outputFrameBuffer, sizeOfextendedPackage);
+     }
+     else
+     {
+       Serial.write(outputFrameBuffer, 4);
+     }
      outputBufferReady = 0;
 
 
@@ -341,7 +407,7 @@ void loop()
      if(vuMeterMode == MODE_PREPARE_SHIFT_REGISTERS)
      {
               //!Here we should set shift reg. byto to whatever we want!
-              shiftRegByte= 0;
+              shiftRegByte++;
               
               bitMask = B10000000;//prepare for bit shifting
               vuMeterMode = SHIFT_OUT_SHIFT_REGISTERS;
@@ -383,53 +449,50 @@ void loop()
     PORTD &= B11110111;//debug
    }//end of (outputBufferReady == 1)
 
+   if(Serial.available()>0)
+   {
+
+      // read untill \n from the serial port:
+      String inString = Serial.readStringUntil('\n');
+    
+      //convert string to null terminate array of chars
+      inString.toCharArray(commandBuffer, SIZE_OF_COMMAND_BUFFER);
+      commandBuffer[inString.length()] = 0;
+      
+      
+      // breaks string str into a series of tokens using delimiter ";"
+      // Namely split strings into commands
+      char* command = strtok(commandBuffer, ";");
+      while (command != 0)
+      {
+          // Split the command in 2 parts: name and value
+          char* separator = strchr(command, ':');
+          if (separator != 0)
+          {
+              // Actually split the string in 2: replace ':' with 0
+              *separator = 0;
+              --separator;
+              
+              if(*separator == 'b')//if we received command for impuls
+              {
+                sendMessage(CURRENT_SHIELD_TYPE);
+              }
+          }
+          // Find the next command in input string
+          command = strtok(0, ";");
+      }
+
+   }
+
 }//end of main loop
 
 
 
-//------------------------- Receive serial event ----------------------------------------------
-void serialEvent() 
-{
-
-  TIMSK1 &= ~(1 << OCIE1A);//disable timer for sampling
-  // read untill \n from the serial port:
-  String inString = Serial.readStringUntil('\n');
-
-  //convert string to null terminate array of chars
-  inString.toCharArray(commandBuffer, SIZE_OF_COMMAND_BUFFER);
-  commandBuffer[inString.length()] = 0;
-  
-  // breaks string str into a series of tokens using delimiter ";"
-  // Namely split strings into commands
-  char* command = strtok(commandBuffer, ";");
-  while (command != 0)
-  {
-      // Split the command in 2 parts: name and value
-      char* separator = strchr(command, ':');
-      if (separator != 0)
-      {
-          // Actually split the string in 2: replace ':' with 0
-          *separator = 0;
-          --separator;
-          
-           if(*separator == 'b')//if we received command for board type
-          {
-            //return board type
-          }
-          
-      }
-      // Find the next command in input string
-      command = strtok(0, ";");
-  }
-  TIMSK1 |= (1 << OCIE1A);//enable timer for sampling
-
-}
-
 
 
 //------------------------- Timer interrupt ---------------------------------
-ISR(TIMER1_COMPA_vect) {
 
+ISR(TIMER2_COMPA_vect){
 
   // Start ADC Conversions 
   //do this at the begining since ADC can work in 
@@ -437,7 +500,7 @@ ISR(TIMER1_COMPA_vect) {
   ADCSRA |=B01000000; 
   
 PORTD |= B00000100;//debug
-  PORTB ^= B00000100;//5kHz oscilator
+  //PORTB ^= B00000100;//5kHz oscilator
   //convert data to frame according to protocol
   //first bit of every byte is used to flag start of the frame
   //so first bit is set only on first byte of frame (| 0x80)
@@ -512,7 +575,45 @@ PORTD &= B11111011;//debug
         }
       }
  PORTD &= B11101111;//debug
+ 
  } 
+
+
+
+
+//push message to main sending buffer
+//timer for sampling must be dissabled when 
+//we call this function
+void sendMessage(const char * message)
+{
+
+  int i;
+  int head = numberOfChannels<<1;
+  //send escape sequence
+  for(i=0;i< ESCAPE_SEQUENCE_LENGTH;i++)
+  {
+      outputFrameBuffer[head++] = escapeSequence[i];
+     
+  }
+
+  //send message
+  i = 0;
+  while(message[i] != 0)
+  {
+      outputFrameBuffer[head++] = message[i++];
+      
+  }
+
+  //send end of escape sequence
+  for(i=0;i< ESCAPE_SEQUENCE_LENGTH;i++)
+  {
+      outputFrameBuffer[head++] = endOfescapeSequence[i];
+      
+  }
+  sizeOfextendedPackage = head;//used when we have to send message and samples
+  sendExtendedMessage = 1;
+   
+}
 
 
 
