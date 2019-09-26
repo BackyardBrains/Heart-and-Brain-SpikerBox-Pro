@@ -157,7 +157,7 @@ byte escapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,128,255};
 byte endOfescapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,129,255};
 byte sizeOfextendedPackage = 0;//used when we have to send message and samples
 byte sendExtendedMessage = 0;
-
+byte numberOfChannelsToSend = 1;
 void timer1_timer2_init()
 {
     //-----------------------------
@@ -284,11 +284,20 @@ PORTD |= B00001000;//debug
      //write data from outputFrameBuffer
      if(sendExtendedMessage)
      {
+       sendExtendedMessage = 0;
        Serial.write(outputFrameBuffer, sizeOfextendedPackage);
      }
      else
      {
-       Serial.write(outputFrameBuffer, 4);
+       if(numberOfChannelsToSend==1)
+       {
+          Serial.write(outputFrameBuffer, 2);
+       }
+       else
+       {
+          Serial.write(outputFrameBuffer, 4);
+       }
+       
      }
      outputBufferReady = 0;
 
@@ -472,7 +481,11 @@ PORTD |= B00001000;//debug
               // Actually split the string in 2: replace ':' with 0
               *separator = 0;
               --separator;
-              
+              if(*separator == 'c')//if we received command for number of channels
+              {
+                separator = separator+2;
+                numberOfChannelsToSend = (byte)atoi(separator);//read number of channels
+              }
               if(*separator == 'b')//if we received command for impuls
               {
                 sendMessage(CURRENT_SHIELD_TYPE);
