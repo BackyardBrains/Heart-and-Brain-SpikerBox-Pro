@@ -8,16 +8,16 @@
   * 
   * A0 - EEG signal from bioamplifier CH1
   * A1 - EEG signal from bioamplifier CH2
-  * A2 - not used (Probably ENCODER)
+  * A2 - ENCODER
   * A3 - additional analog inputs CH4 or event 4
   * A4 - additional analog input CH3 or event 5
   * A5 - monitoring of voltage on battery
   * 
   * D0  - RX
   * D1  - TX
-  * D2  - Debug
-  * 
-  * 
+  * D2  - event 1 
+  * D3  - event 2
+  * D4  - event 3
   * D5  - Red LED (inverted)
   * 
   * 
@@ -44,10 +44,38 @@
 
 #define CURRENT_SHIELD_TYPE "HWT:MUSCLESS;"
 
+
+//operation modes
+#define OPERATION_MODE_DEFAULT 0
+#define OPERATION_MODE_BNC 1
+#define OPERATION_MODE_FIVE_DIGITAL 2
+#define OPERATION_MODE_HAMMER 3
+#define OPERATION_MODE_MORE_ANALOG 4
+#define OPERATION_MODE_JOYSTICK 5
+
+
+
 #define SIZE_OF_COMMAND_BUFFER 30               //command buffer size
 char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 
 //--------------------- VU meter shift registers variable/constants 
+
+
+
+#define CH_1_BUFFER_INDEX    0
+#define CH_2_BUFFER_INDEX    1
+#define CH_3_BUFFER_INDEX    3
+#define CH_4_BUFFER_INDEX    4
+#define ENCODER_BUFFER_INDEX 2
+#define BATTERY_BUFFER_INDEX 5
+
+#define EVENT_1_PIN 2
+#define EVENT_2_PIN 3
+#define EVENT_3_PIN 4
+//A3 and A4 are used as a digital inputs also
+#define EVENT_4_PIN 17
+#define EVENT_5_PIN 18
+
 
 //D8 port B 0. bit
 #define SHIFT_LATCH_PIN 8                       //latch pin for shift register
@@ -93,9 +121,7 @@ unsigned int blinkingLowVoltageTimer = 0;
 #define RED_LED B00100000
 #define NOT_RED_LED B11011111
 
-//registers that contain state of LEDs for all 6 VU meters
-//we have 6 VU meters with 6 LEDs so we need 36 bits. That fits in 
-//five 8bit registers
+//registers that contain state of LEDs
 byte shiftRegByte;
 #define MODE_PREPARE_SHIFT_REGISTERS 0          //when in this mode we calculate what leds will be ON
 #define SHIFT_OUT_SHIFT_REGISTERS 1             //when in this mode we shift out bits for LEDS to shift reg. 
@@ -116,10 +142,7 @@ byte bitMask = 1;                               //general purpose bit mask byte 
 byte numberOfChannels = 2;
 
 //Note:
-//Since we have to refresh all the analog channels for VU meters all the time we have to 
-//measure MAX_NUMBER_OF_CHANNELS all the time. According to spec. when only one
-//channel is ON in SpikeRecorder we have to sample it at 10kHz. Since Arduino can not
-//sample 6 channels at 10kHz we have to sample at maximal frequency only channels that 
+//We have to sample at maximal frequency only channels that 
 //we need to send to SpikeRecorder via serial. Rest of the chanels we sample at lower 
 //frequency in round-robin scheme one channel each period of timer 
 
@@ -158,6 +181,26 @@ byte endOfescapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,129,255};
 byte sizeOfextendedPackage = 0;//used when we have to send message and samples
 byte sendExtendedMessage = 0;
 byte numberOfChannelsToSend = 1;
+
+
+#define SAMPLE_RATE_500  249
+#define SAMPLE_RATE_1000 124
+
+#define DEBOUNCE_TIME 200
+//debouncer variables
+//used for events in normal mode and reaction timer
+unsigned int debounceTimer1 = 0;
+unsigned int debounceTimer2 = 0;
+unsigned int debounceTimer3 = 0;
+unsigned int debounceTimer4 = 0;
+unsigned int debounceTimer5 = 0;
+unsigned int eventEnabled1 = 1;
+unsigned int eventEnabled2 = 1;
+unsigned int eventEnabled3 = 1;
+unsigned int eventEnabled4 = 1;
+unsigned int eventEnabled5 = 1;
+
+
 void timer1_timer2_init()
 {
     //-----------------------------
@@ -207,15 +250,48 @@ void timer1_timer2_init()
     //101    
     //OCR2A = 124;
     //change OCRA to change sampling freq 249 for 500Hz and 124 to 1kHz
-   OCR2A = 124;
+   OCR2A = SAMPLE_RATE_1000;
    OCR2B = 2;
 }
+
+
+
+
+
+
+
+
+//3.3V/1023 = 0.00322580645 V for one AD unit
+//How many AD units is each threshold
+//0.499V
+#define EXP_BOARD_VOLTAGE_LEVEL_1 155
+//0.999V
+#define EXP_BOARD_VOLTAGE_LEVEL_2 310
+//1.499V
+#define EXP_BOARD_VOLTAGE_LEVEL_3 465
+//1.999V
+#define EXP_BOARD_VOLTAGE_LEVEL_4 620
+//2.49V
+#define EXP_BOARD_VOLTAGE_LEVEL_5 775
+//2.99V
+#define EXP_BOARD_VOLTAGE_LEVEL_6 930
+
+uint8_t operationMode =0;
+
+int currentEncoderVoltage = 0;
+int lastEncoderVoltage = 0;
+
+uint8_t waitingForEncoder = 0;
+uint16_t debounceEncoderTimer = 0;
+uint16_t blinkingBoardDetectionTimer = 0;
+#define ENCODER_DEBUNCE_TIME 1500
+#define BLINKING_ENCODER_DEBUNCE_TIME 300
 
 
  
 void setup()
 {
-  Serial.begin(230400);//230400);       //begin Serial comm
+  Serial.begin(230400);      //begin Serial comm
 
   Serial.setTimeout(2);
 
@@ -224,9 +300,13 @@ void setup()
   pinMode(SHIFT_CLOCK_PIN, OUTPUT);
   pinMode(SHIFT_DATA_PIN, OUTPUT);
 
-  pinMode(2, OUTPUT);//debug
-  pinMode(3, OUTPUT);//debug
-  pinMode(4, OUTPUT);//debug
+  pinMode(EVENT_1_PIN, INPUT);
+  pinMode(EVENT_2_PIN, INPUT);
+  pinMode(EVENT_3_PIN, INPUT);
+
+  
+
+
 
   //status LEDs
   pinMode(OSCILATOR_PIN, OUTPUT);//5kHz oscilator
@@ -252,16 +332,8 @@ void setup()
   cbi(ADCSRA,ADPS1);//0
   cbi(ADCSRA,ADPS0);//0
 
-  
-  
-
   timer1_timer2_init();
 
-
-
-
-
-  
    //initialize variables for SDC sampling scheme 
    numberOfChannels = 2;
    regularChannelsIndex = 0;
@@ -274,6 +346,56 @@ void setup()
 }
 
 
+//
+// Setup operation mode inputs outputs and state
+//
+void setupOperationMode(void)
+{
+    cli();
+    //for now (untill joystick) all are inputs
+    pinMode(EVENT_1_PIN, INPUT);
+    pinMode(EVENT_2_PIN, INPUT);
+    pinMode(EVENT_3_PIN, INPUT);
+    switch(operationMode)
+    {
+        case OPERATION_MODE_BNC:
+            OCR2A = SAMPLE_RATE_1000;
+            numberOfChannels = 2;
+        break;
+        case OPERATION_MODE_FIVE_DIGITAL:
+            OCR2A = SAMPLE_RATE_1000;
+            numberOfChannels = 2;
+            break;
+        case OPERATION_MODE_JOYSTICK:
+            OCR2A = SAMPLE_RATE_500;
+            numberOfChannels = 3;
+            break;
+        case OPERATION_MODE_HAMMER:
+            OCR2A = SAMPLE_RATE_500;
+            numberOfChannels = 3;
+        break;
+        case OPERATION_MODE_MORE_ANALOG:
+            OCR2A = SAMPLE_RATE_500;
+            numberOfChannels = 4;
+        break;
+        case OPERATION_MODE_DEFAULT:
+            OCR2A = SAMPLE_RATE_1000;
+            numberOfChannels = 2;
+        break;
+        default:
+            OCR2A = SAMPLE_RATE_1000;
+            numberOfChannels = 2;
+        break;
+    }
+    regularChannelsIndex = 0;
+    roundRobinChannelIndex = numberOfChannels;
+    adcInterruptIndex = 0;
+    lastADCIndex = 0;
+    
+    sei();
+}
+
+
 
 //----------------------------- Main Loop ----------------------------------------------------
 void loop()
@@ -281,31 +403,26 @@ void loop()
    if(outputBufferReady == 1)//if we have new data
    {
 PORTD |= B00001000;//debug
-     //write data from outputFrameBuffer
-     if(sendExtendedMessage)
-     {
-       sendExtendedMessage = 0;
-       Serial.write(outputFrameBuffer, sizeOfextendedPackage);
-     }
-     else
-     {
-       if(numberOfChannelsToSend==1)
-       {
-          Serial.write(outputFrameBuffer, 2);
-       }
-       else
-       {
-          Serial.write(outputFrameBuffer, 4);
-       }
-       
-     }
-     outputBufferReady = 0;
+
+      
+      //------------------------- SEND DATA -------------------------------------
+      //write data from outputFrameBuffer
+      if(sendExtendedMessage)
+      {
+          sendExtendedMessage = 0;
+          Serial.write(outputFrameBuffer, sizeOfextendedPackage);
+      }
+      else
+      {
+          Serial.write(outputFrameBuffer, numberOfChannelsToSend<<1);
+      }
+      outputBufferReady = 0;
 
 
 
 
       // ------------------------------- CHECK THE POWER RAIL VOLTAGE -------------------------------
-      uint16_t tempADCresult = samplingBuffer[5];//battery ADC result
+      uint16_t tempADCresult = samplingBuffer[BATTERY_BUFFER_INDEX];//battery ADC result
   
   
       //detect voltage level and set mode (with histeresis)
@@ -381,42 +498,350 @@ PORTD |= B00001000;//debug
       }//end of power mode if selection
 
 
-      //set LEDs according to power mode
-      switch(powerMode)
-      {
-          case POWER_MODE_SOLID_GREEN:
-              PORTB &= NOT_GREEN_LED;
-              PORTD |=  RED_LED;
-          break;
-          case POWER_MODE_SOLID_RED:
-              PORTB |= GREEN_LED;
-              PORTD &= NOT_RED_LED;
-          break;
-          case POWER_MODE_BLINKING_RED:
-              if(blinkingLowVoltageTimer>0)
+
+
+
+
+    // ------------------- BOARD DETECTION -----------------------------
+    currentEncoderVoltage = samplingBuffer[ENCODER_BUFFER_INDEX];
+
+
+
+    if((currentEncoderVoltage - lastEncoderVoltage)>30 || (lastEncoderVoltage - currentEncoderVoltage)>30)
+    {
+          debounceEncoderTimer = ENCODER_DEBUNCE_TIME;
+          waitingForEncoder = 1;
+    }
+
+    if(waitingForEncoder)
+    {
+
+        debounceEncoderTimer--;
+        if(debounceEncoderTimer == 0)
+        {
+              //if time has expired
+              //turn OFF blue LED
+              //continue with Red and Green power leds status
+              PORTB |= BLUE_LED;
+              waitingForEncoder = 0;
+              
+
+              if(currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_1 )
               {
-                  blinkingLowVoltageTimer = blinkingLowVoltageTimer -1;
+                  //default
+                  if(operationMode != OPERATION_MODE_DEFAULT)
+                  {
+                      operationMode = OPERATION_MODE_DEFAULT;
+                      sendMessage("BRD:0;");
+                      setupOperationMode();
+                  }
+      
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_1) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_2))
+              {
+                  //first board BNC
+                  if(operationMode != OPERATION_MODE_MORE_ANALOG)
+                  {
+                      operationMode = OPERATION_MODE_MORE_ANALOG;
+                      sendMessage("BRD:1;");
+                      setupOperationMode();
+                  }
+      
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_2) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_3))
+              {
+                  //second board - Reaction timer
+      
+                  if(operationMode != OPERATION_MODE_BNC)
+                  {
+                      operationMode = OPERATION_MODE_BNC;
+                      sendMessage("BRD:2;");
+                      setupOperationMode();
+      
+                  }
+      
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_3) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_4))
+              {
+                  //third board - dev board
+                  if(operationMode != OPERATION_MODE_FIVE_DIGITAL)
+                  {
+                      operationMode = OPERATION_MODE_FIVE_DIGITAL;
+                      sendMessage("BRD:3;");
+                      setupOperationMode();
+                  }
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_4) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_5))
+              {
+                  //forth board
+                  if(operationMode != OPERATION_MODE_HAMMER)
+                  {
+                      operationMode = OPERATION_MODE_HAMMER;
+                      sendMessage("BRD:4;");
+                      setupOperationMode();
+                  }
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_5) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_6))
+              {
+                  //fifth board
+      
+                  if(operationMode != OPERATION_MODE_JOYSTICK)
+                  {
+                      operationMode = OPERATION_MODE_JOYSTICK;
+                      sendMessage("BRD:5;");
+                      setupOperationMode();
+      
+                  }
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_6))
+              {
+                if(operationMode != OPERATION_MODE_DEFAULT)
+                {
+                    //sixth board
+                    sendMessage("BRD:0;");
+                    operationMode = OPERATION_MODE_DEFAULT;
+                    setupOperationMode();
+                }
+              }
+
+              
+        }
+        else
+        {
+              //blinking LED during 1.5sec detection/debounce time
+              if(blinkingBoardDetectionTimer==0)
+              {
+                    blinkingBoardDetectionTimer = BLINKING_ENCODER_DEBUNCE_TIME;
+                    //turn off Red and Green and toggle blue
+                    PORTB ^= BLUE_LED;
+                    PORTD |= RED_LED;
+                    PORTB |= GREEN_LED;
               }
               else
               {
-                  blinkingLowVoltageTimer = BLINKING_LOW_VOLTAGE_TIMER_MAX_VALUE;
-  
-                  PORTD ^=  RED_LED;//blinking red
-                  PORTB |= GREEN_LED;
+                    PORTD |= RED_LED;
+                    PORTB |= GREEN_LED;
               }
-          break;
-          case POWER_MODE_LEDS_OFF:
-              PORTD |=  RED_LED;
-              PORTB |=  GREEN_LED;
-          break;
+              blinkingBoardDetectionTimer--;
+        }
+    }//if (waitingForEncoder) end
+    lastEncoderVoltage = currentEncoderVoltage;
+
+
+
+
+
+
+
+    //===================== Power LEDS ==============================
+
+      if(waitingForEncoder==0)
+      {
+
+            //set LEDs according to power mode
+            switch(powerMode)
+            {
+                case POWER_MODE_SOLID_GREEN:
+                    PORTB &= NOT_GREEN_LED;
+                    PORTD |=  RED_LED;
+                break;
+                case POWER_MODE_SOLID_RED:
+                    PORTB |= GREEN_LED;
+                    PORTD &= NOT_RED_LED;
+                break;
+                case POWER_MODE_BLINKING_RED:
+                    if(blinkingLowVoltageTimer>0)
+                    {
+                        blinkingLowVoltageTimer = blinkingLowVoltageTimer -1;
+                    }
+                    else
+                    {
+                        blinkingLowVoltageTimer = BLINKING_LOW_VOLTAGE_TIMER_MAX_VALUE;
+        
+                        PORTD ^=  RED_LED;//blinking red
+                        PORTB |= GREEN_LED;
+                    }
+                break;
+                case POWER_MODE_LEDS_OFF:
+                    PORTD |=  RED_LED;
+                    PORTB |=  GREEN_LED;
+                break;
+            }
       }
+
+
+      //--------------------- BOARD EXECUTION -------------------------------
+
+
+        switch(operationMode)
+        {
+            case OPERATION_MODE_JOYSTICK:
+
+                break;
+            case OPERATION_MODE_DEFAULT:
+            case OPERATION_MODE_FIVE_DIGITAL:
+
+                //two additional digital inputs
+
+
+
+                //================= EVENT 5 code ======================
+
+                if(debounceTimer5>0)
+                {
+                    debounceTimer5--;
+                }
+                else
+                {
+                    if(eventEnabled5>0)
+                    {
+                            if(digitalRead(EVENT_5_PIN)==HIGH)
+                            {
+                                    eventEnabled5 = 0;
+                                    debounceTimer5 = DEBOUNCE_TIME;
+                                    sendMessage("EVNT:5;");
+                                    
+                            }
+                    }
+                    else
+                    {
+                        if(digitalRead(EVENT_5_PIN)==LOW)
+                        {
+                            eventEnabled5 = 1;
+                        }
+
+                    }
+                }
+
+
+            case OPERATION_MODE_HAMMER:
+
+                //================= EVENT 4 code ======================
+                if(debounceTimer4>0)
+                {
+                    debounceTimer4--;
+                }
+                else
+                {
+                    if(eventEnabled4>0)
+                    {
+                            if(digitalRead(EVENT_4_PIN)==HIGH)
+                            {
+                                    eventEnabled4 = 0;
+                                    debounceTimer4 = DEBOUNCE_TIME;
+                                    sendMessage("EVNT:4;");
+                                    
+                            }
+                    }
+                    else
+                    {
+                        if(digitalRead(EVENT_4_PIN)==LOW)
+                        {
+                            eventEnabled4 = 1;
+                        }
+
+                    }
+                }
+
+
+            case OPERATION_MODE_BNC:
+            case OPERATION_MODE_MORE_ANALOG:
+
+                //============== event 1 =================
+
+                    if(debounceTimer1>0)
+                    {
+                        debounceTimer1--;
+                    }
+                    else
+                    {
+                        if(eventEnabled1>0)
+                        {
+                                if(digitalRead(EVENT_1_PIN)==HIGH)
+                                {
+                                        eventEnabled1 = 0;
+                                        debounceTimer1 = DEBOUNCE_TIME;
+                                        sendMessage("EVNT:1;");
+                                        
+                                }
+                        }
+                        else
+                        {
+                            if(digitalRead(EVENT_1_PIN)==LOW)
+                            {
+                                eventEnabled1 = 1;
+                            }
+                        }
+                    }
+
+                    //================= EVENT 2 code ======================
+
+                    if(debounceTimer2>0)
+                    {
+                        debounceTimer2--;
+                    }
+                    else
+                    {
+                        if(eventEnabled2>0)
+                        {
+                                if(digitalRead(EVENT_2_PIN)==HIGH)
+                                {
+                                        eventEnabled2 = 0;
+                                        debounceTimer2 = DEBOUNCE_TIME;
+                                        sendMessage("EVNT:2;");
+                                        
+                                }
+                        }
+                        else
+                        {
+                            if(digitalRead(EVENT_2_PIN)==LOW)
+                            {
+                                eventEnabled2 = 1;
+                            }
+
+                        }
+                    }
+
+                    //================= EVENT 3 code ======================
+
+                    if(debounceTimer3>0)
+                    {
+                        debounceTimer3--;
+                    }
+                    else
+                    {
+                        if(eventEnabled3>0)
+                        {
+                                if(digitalRead(EVENT_3_PIN)==HIGH)
+                                {
+                                        eventEnabled3 = 0;
+                                        debounceTimer3 = DEBOUNCE_TIME;
+                                        sendMessage("EVNT:3;");
+                                        
+                                }
+                        }
+                        else
+                        {
+                            if(digitalRead(EVENT_3_PIN)==LOW)
+                            {
+                                eventEnabled3 = 1;
+                            }
+
+                        }
+                    }
+            default:
+                //do nothing, that is for joystick
+                break;
+        }
+
+
 
      //-------------------------------- MAIN LOOP calculate what diode needs to be ON for VU meter ---------------------------------------
      //we calculate one VU meter at per period of timer since it takes too long to calculate all VU meters in one pass
      if(vuMeterMode == MODE_PREPARE_SHIFT_REGISTERS)
      {
               //!Here we should set shift reg. byto to whatever we want!
-              shiftRegByte++;
+              shiftRegByte=0;
               
               bitMask = B10000000;//prepare for bit shifting
               vuMeterMode = SHIFT_OUT_SHIFT_REGISTERS;
@@ -458,9 +883,10 @@ PORTD |= B00001000;//debug
     PORTD &= B11110111;//debug
    }//end of (outputBufferReady == 1)
 
+
+   //------------------- SERIAL RECEIVE -----------------------------------------
    if(Serial.available()>0)
    {
-
       // read untill \n from the serial port:
       String inString = Serial.readStringUntil('\n');
     
@@ -490,12 +916,37 @@ PORTD |= B00001000;//debug
               {
                 sendMessage(CURRENT_SHIELD_TYPE);
               }
+              if(*separator == 'd')//last char from "board"
+              {
+                
+                   switch(operationMode)
+                    {
+                        case OPERATION_MODE_BNC:
+                            sendMessage("BRD:1;");
+                        break;
+                        case OPERATION_MODE_FIVE_DIGITAL:
+                            sendMessage("BRD:3;");
+                        break;
+                        case OPERATION_MODE_HAMMER:
+                            sendMessage("BRD:4;");
+                        break;
+                        case OPERATION_MODE_JOYSTICK:
+                            sendMessage("BRD:5;");
+                        break;
+                        case OPERATION_MODE_MORE_ANALOG:
+                            sendMessage("BRD:1;");
+                        break;
+                        case OPERATION_MODE_DEFAULT:
+                            sendMessage("BRD:0;");
+                        break;
+                    }
+               }
           }
           // Find the next command in input string
           command = strtok(0, ";");
       }
+   }//end of serial receive
 
-   }
 
 }//end of main loop
 
@@ -517,10 +968,20 @@ PORTD |= B00000100;//debug
   //convert data to frame according to protocol
   //first bit of every byte is used to flag start of the frame
   //so first bit is set only on first byte of frame (| 0x80)
-  outputFrameBuffer[0]= (samplingBuffer[0]>>7)| 0x80;
-  outputFrameBuffer[1]=  samplingBuffer[0] & 0x7F;
-  outputFrameBuffer[2]= (samplingBuffer[1]>>7)& 0x7F;
-  outputFrameBuffer[3]=  samplingBuffer[1] & 0x7F;
+  outputFrameBuffer[0]= (samplingBuffer[CH_1_BUFFER_INDEX]>>7)| 0x80;
+  outputFrameBuffer[1]=  samplingBuffer[CH_1_BUFFER_INDEX] & 0x7F;
+  outputFrameBuffer[2]= (samplingBuffer[CH_2_BUFFER_INDEX]>>7)& 0x7F;
+  outputFrameBuffer[3]=  samplingBuffer[CH_2_BUFFER_INDEX] & 0x7F;
+  if(numberOfChannels>2)
+  {
+    outputFrameBuffer[4]= (samplingBuffer[CH_3_BUFFER_INDEX]>>7)& 0x7F;
+    outputFrameBuffer[5]=  samplingBuffer[CH_3_BUFFER_INDEX] & 0x7F;
+  }
+  if(numberOfChannels>3)
+  {
+    outputFrameBuffer[6]= (samplingBuffer[CH_4_BUFFER_INDEX]>>7)& 0x7F;
+    outputFrameBuffer[7]=  samplingBuffer[CH_4_BUFFER_INDEX] & 0x7F;
+  }
   
   //signal main loop to send frame
   outputBufferReady = 1;
