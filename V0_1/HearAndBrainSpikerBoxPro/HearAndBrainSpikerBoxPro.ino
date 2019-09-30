@@ -402,7 +402,7 @@ void loop()
 {
    if(outputBufferReady == 1)//if we have new data
    {
-PORTD |= B00001000;//debug
+
 
       
       //------------------------- SEND DATA -------------------------------------
@@ -880,7 +880,7 @@ PORTD |= B00001000;//debug
        
      }
 
-    PORTD &= B11110111;//debug
+
    }//end of (outputBufferReady == 1)
 
 
@@ -962,8 +962,7 @@ ISR(TIMER2_COMPA_vect){
   //do this at the begining since ADC can work in 
   //paralel with this timer handler
   ADCSRA |=B01000000; 
-  
-PORTD |= B00000100;//debug
+
   //PORTB ^= B00000100;//5kHz oscilator
   //convert data to frame according to protocol
   //first bit of every byte is used to flag start of the frame
@@ -994,7 +993,7 @@ PORTD |= B00000100;//debug
 //This is called when ADC conversion is complete.
 ISR(ADC_vect)           
  {
-PORTD |= B00010000;//debug
+
      
       samplingBuffer[lastADCIndex] = ADCL | (ADCH << 8);// store lower and higher byte of ADC
 
@@ -1033,7 +1032,7 @@ PORTD |= B00010000;//debug
           //and one unused channel do not trigger ADC
           //but whait for next timer period and timer will trigger it
           adcInterruptIndex = 0;
-PORTD &= B11111011;//debug
+
       }
       else
       {
@@ -1048,7 +1047,7 @@ PORTD &= B11111011;//debug
           adcInterruptIndex = 0;
         }
       }
- PORTD &= B11101111;//debug
+
  
  } 
 
