@@ -42,7 +42,7 @@
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
-#define CURRENT_SHIELD_TYPE "HWT:MUSCLESS;"
+#define CURRENT_SHIELD_TYPE "HWT:HBSBPRO;"
 
 
 //operation modes
