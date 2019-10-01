@@ -64,8 +64,8 @@ char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 
 #define CH_1_BUFFER_INDEX    0
 #define CH_2_BUFFER_INDEX    1
-#define CH_3_BUFFER_INDEX    3
-#define CH_4_BUFFER_INDEX    4
+#define CH_3_BUFFER_INDEX    4
+#define CH_4_BUFFER_INDEX    3
 #define ENCODER_BUFFER_INDEX 2
 #define BATTERY_BUFFER_INDEX 5
 
@@ -367,15 +367,15 @@ void setupOperationMode(void)
             numberOfChannels = 2;
             break;
         case OPERATION_MODE_JOYSTICK:
-            OCR2A = SAMPLE_RATE_500;
+            OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 3;
             break;
         case OPERATION_MODE_HAMMER:
-            OCR2A = SAMPLE_RATE_500;
+            OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 3;
         break;
         case OPERATION_MODE_MORE_ANALOG:
-            OCR2A = SAMPLE_RATE_500;
+            OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 4;
         break;
         case OPERATION_MODE_DEFAULT:
@@ -567,7 +567,7 @@ void loop()
                   if(operationMode != OPERATION_MODE_FIVE_DIGITAL)
                   {
                       operationMode = OPERATION_MODE_FIVE_DIGITAL;
-                      sendMessage("BRD:3;");
+                      sendMessage("BRD:0;");
                       setupOperationMode();
                   }
               }
