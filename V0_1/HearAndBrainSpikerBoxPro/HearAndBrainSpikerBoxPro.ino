@@ -180,7 +180,7 @@ byte escapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,128,255};
 byte endOfescapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,129,255};
 byte sizeOfextendedPackage = 0;//used when we have to send message and samples
 byte sendExtendedMessage = 0;
-byte numberOfChannelsToSend = 1;
+byte numberOfChannelsToSend = 2;
 
 
 #define SAMPLE_RATE_500  249
@@ -909,8 +909,8 @@ void loop()
               --separator;
               if(*separator == 'c')//if we received command for number of channels
               {
-                separator = separator+2;
-                numberOfChannelsToSend = (byte)atoi(separator);//read number of channels
+                //separator = separator+2;
+                //numberOfChannelsToSend = (byte)atoi(separator);//read number of channels
               }
               if(*separator == 'b')//if we received command for impuls
               {
