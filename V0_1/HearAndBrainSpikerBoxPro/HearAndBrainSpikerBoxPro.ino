@@ -263,17 +263,17 @@ void timer1_timer2_init()
 
 //3.3V/1023 = 0.00322580645 V for one AD unit
 //How many AD units is each threshold
-//0.499V
+//0.499V //0.75
 #define EXP_BOARD_VOLTAGE_LEVEL_1 155
-//0.999V
+//0.999V //1.51
 #define EXP_BOARD_VOLTAGE_LEVEL_2 310
-//1.499V
+//1.499V //2.27
 #define EXP_BOARD_VOLTAGE_LEVEL_3 465
-//1.999V
+//1.999V //3.03
 #define EXP_BOARD_VOLTAGE_LEVEL_4 620
-//2.49V
+//2.49V //3.78
 #define EXP_BOARD_VOLTAGE_LEVEL_5 775
-//2.99V
+//2.99V //4.54
 #define EXP_BOARD_VOLTAGE_LEVEL_6 930
 
 uint8_t operationMode =0;
@@ -388,6 +388,7 @@ void setupOperationMode(void)
         break;
     }
     regularChannelsIndex = 0;
+    numberOfChannelsToSend = numberOfChannels;
     roundRobinChannelIndex = numberOfChannels;
     adcInterruptIndex = 0;
     lastADCIndex = 0;
@@ -507,7 +508,7 @@ void loop()
 
 
 
-    if((currentEncoderVoltage - lastEncoderVoltage)>30 || (lastEncoderVoltage - currentEncoderVoltage)>30)
+    if((currentEncoderVoltage - lastEncoderVoltage)>10 || (lastEncoderVoltage - currentEncoderVoltage)>10)
     {
           debounceEncoderTimer = ENCODER_DEBUNCE_TIME;
           waitingForEncoder = 1;
