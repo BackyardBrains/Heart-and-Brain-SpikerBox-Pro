@@ -139,7 +139,7 @@ byte bitMask = 1;                               //general purpose bit mask byte 
 //---------------------- ADC sampling related variable/constants
 #define MAX_NUMBER_OF_CHANNELS 6                //Maximum number of analog channels
 //How many analog channels we are currently sending via serial to SpikeRecorder
-byte numberOfChannels = 2;
+
 
 //Note:
 //We have to sample at maximal frequency only channels that 
@@ -172,14 +172,16 @@ volatile uint16_t samplingBuffer[MAX_NUMBER_OF_CHANNELS];
 byte outputBufferReady = 0;
 //Output frame buffer that contains measured EMG data formated according to 
 //SpikeRecorder serial protocol
-byte outputFrameBuffer[MAX_NUMBER_OF_CHANNELS*2+64];
+byte headout = 0;
+byte tailout = 0;
+byte outputFrameBuffer[256];
 
 
 #define ESCAPE_SEQUENCE_LENGTH 6
 byte escapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,128,255};
 byte endOfescapeSequence[ESCAPE_SEQUENCE_LENGTH] = {255,255,1,1,129,255};
-byte sizeOfextendedPackage = 0;//used when we have to send message and samples
-byte sendExtendedMessage = 0;
+
+byte numberOfChannels = 2;
 byte numberOfChannelsToSend = 2;
 
 
@@ -408,15 +410,12 @@ void loop()
       
       //------------------------- SEND DATA -------------------------------------
       //write data from outputFrameBuffer
-      if(sendExtendedMessage)
+      while(headout!=tailout)
       {
-          sendExtendedMessage = 0;
-          Serial.write(outputFrameBuffer, sizeOfextendedPackage);
+        Serial.write(outputFrameBuffer[tailout]);
+        tailout++;
       }
-      else
-      {
-          Serial.write(outputFrameBuffer, numberOfChannelsToSend<<1);
-      }
+      
       outputBufferReady = 0;
 
 
@@ -533,8 +532,9 @@ void loop()
                   if(operationMode != OPERATION_MODE_DEFAULT)
                   {
                       operationMode = OPERATION_MODE_DEFAULT;
-                      sendMessage("BRD:0;");
+ 
                       setupOperationMode();
+                      sendMessage("BRD:0;");
                   }
       
               }
@@ -544,8 +544,9 @@ void loop()
                   if(operationMode != OPERATION_MODE_MORE_ANALOG)
                   {
                       operationMode = OPERATION_MODE_MORE_ANALOG;
-                      sendMessage("BRD:1;");
+                      
                       setupOperationMode();
+                      sendMessage("BRD:1;");
                   }
       
               }
@@ -556,8 +557,9 @@ void loop()
                   if(operationMode != OPERATION_MODE_BNC)
                   {
                       operationMode = OPERATION_MODE_BNC;
-                      sendMessage("BRD:2;");
+                      
                       setupOperationMode();
+                      sendMessage("BRD:2;");
       
                   }
       
@@ -568,8 +570,9 @@ void loop()
                   if(operationMode != OPERATION_MODE_FIVE_DIGITAL)
                   {
                       operationMode = OPERATION_MODE_FIVE_DIGITAL;
-                      sendMessage("BRD:0;");
+                      
                       setupOperationMode();
+                      sendMessage("BRD:0;");
                   }
               }
               else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_4) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_5))
@@ -578,8 +581,9 @@ void loop()
                   if(operationMode != OPERATION_MODE_HAMMER)
                   {
                       operationMode = OPERATION_MODE_HAMMER;
-                      sendMessage("BRD:4;");
+                      
                       setupOperationMode();
+                      sendMessage("BRD:4;");
                   }
               }
               else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_5) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_6))
@@ -589,8 +593,9 @@ void loop()
                   if(operationMode != OPERATION_MODE_JOYSTICK)
                   {
                       operationMode = OPERATION_MODE_JOYSTICK;
-                      sendMessage("BRD:5;");
+                      
                       setupOperationMode();
+                      sendMessage("BRD:5;");
       
                   }
               }
@@ -599,9 +604,10 @@ void loop()
                 if(operationMode != OPERATION_MODE_DEFAULT)
                 {
                     //sixth board
-                    sendMessage("BRD:0;");
+                    
                     operationMode = OPERATION_MODE_DEFAULT;
                     setupOperationMode();
+                    sendMessage("BRD:0;");
                 }
               }
 
@@ -968,19 +974,19 @@ ISR(TIMER2_COMPA_vect){
   //convert data to frame according to protocol
   //first bit of every byte is used to flag start of the frame
   //so first bit is set only on first byte of frame (| 0x80)
-  outputFrameBuffer[0]= (samplingBuffer[CH_1_BUFFER_INDEX]>>7)| 0x80;
-  outputFrameBuffer[1]=  samplingBuffer[CH_1_BUFFER_INDEX] & 0x7F;
-  outputFrameBuffer[2]= (samplingBuffer[CH_2_BUFFER_INDEX]>>7)& 0x7F;
-  outputFrameBuffer[3]=  samplingBuffer[CH_2_BUFFER_INDEX] & 0x7F;
+  outputFrameBuffer[headout++]= (samplingBuffer[CH_1_BUFFER_INDEX]>>7)| 0x80;
+  outputFrameBuffer[headout++]=  samplingBuffer[CH_1_BUFFER_INDEX] & 0x7F;
+  outputFrameBuffer[headout++]= (samplingBuffer[CH_2_BUFFER_INDEX]>>7)& 0x7F;
+  outputFrameBuffer[headout++]=  samplingBuffer[CH_2_BUFFER_INDEX] & 0x7F;
   if(numberOfChannels>2)
   {
-    outputFrameBuffer[4]= (samplingBuffer[CH_3_BUFFER_INDEX]>>7)& 0x7F;
-    outputFrameBuffer[5]=  samplingBuffer[CH_3_BUFFER_INDEX] & 0x7F;
+    outputFrameBuffer[headout++]= (samplingBuffer[CH_3_BUFFER_INDEX]>>7)& 0x7F;
+    outputFrameBuffer[headout++]=  samplingBuffer[CH_3_BUFFER_INDEX] & 0x7F;
   }
   if(numberOfChannels>3)
   {
-    outputFrameBuffer[6]= (samplingBuffer[CH_4_BUFFER_INDEX]>>7)& 0x7F;
-    outputFrameBuffer[7]=  samplingBuffer[CH_4_BUFFER_INDEX] & 0x7F;
+    outputFrameBuffer[headout++]= (samplingBuffer[CH_4_BUFFER_INDEX]>>7)& 0x7F;
+    outputFrameBuffer[headout++]=  samplingBuffer[CH_4_BUFFER_INDEX] & 0x7F;
   }
   
   //signal main loop to send frame
@@ -1062,11 +1068,11 @@ void sendMessage(const char * message)
 {
 
   int i;
-  int head = numberOfChannels<<1;
+
   //send escape sequence
   for(i=0;i< ESCAPE_SEQUENCE_LENGTH;i++)
   {
-      outputFrameBuffer[head++] = escapeSequence[i];
+      outputFrameBuffer[headout++] = escapeSequence[i];
      
   }
 
@@ -1074,18 +1080,16 @@ void sendMessage(const char * message)
   i = 0;
   while(message[i] != 0)
   {
-      outputFrameBuffer[head++] = message[i++];
+      outputFrameBuffer[headout++] = message[i++];
       
   }
 
   //send end of escape sequence
   for(i=0;i< ESCAPE_SEQUENCE_LENGTH;i++)
   {
-      outputFrameBuffer[head++] = endOfescapeSequence[i];
+      outputFrameBuffer[headout++] = endOfescapeSequence[i];
       
   }
-  sizeOfextendedPackage = head;//used when we have to send message and samples
-  sendExtendedMessage = 1;
    
 }
 
