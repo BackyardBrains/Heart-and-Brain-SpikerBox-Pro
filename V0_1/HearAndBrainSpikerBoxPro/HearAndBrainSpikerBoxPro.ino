@@ -289,13 +289,17 @@ uint16_t blinkingBoardDetectionTimer = 0;
 #define ENCODER_DEBUNCE_TIME 1500
 #define BLINKING_ENCODER_DEBUNCE_TIME 300
 
+int smoothDataRate = 50;
+byte emptyBuffer[256];
 
- 
 void setup()
 {
   Serial.begin(230400);      //begin Serial comm
 
-  Serial.setTimeout(2);
+  for (int g= 0;g<256;g++)
+  {
+    emptyBuffer[g] = 0;  
+  }
 
   //set pins to output for shift register
   pinMode(SHIFT_LATCH_PIN, OUTPUT);
@@ -405,17 +409,23 @@ void loop()
 {
    if(outputBufferReady == 1)//if we have new data
    {
-
-
-      
       //------------------------- SEND DATA -------------------------------------
       //write data from outputFrameBuffer
+      int sent=0;
       while(headout!=tailout)
       {
+        sent++;
         Serial.write(outputFrameBuffer[tailout]);
         tailout++;
       }
-      
+      if(sent>0)
+      {
+        int diff = smoothDataRate-sent;
+        if(diff>0)
+        {
+              Serial.write(emptyBuffer,diff);
+        }  
+      }
       outputBufferReady = 0;
 
 
@@ -443,7 +453,6 @@ void loop()
                   {
                       powerMode = POWER_MODE_SOLID_RED;
                   }
-  
           }
           else
           {
