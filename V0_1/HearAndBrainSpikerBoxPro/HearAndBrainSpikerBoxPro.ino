@@ -295,7 +295,7 @@ byte emptyBuffer[256];
 void setup()
 {
   Serial.begin(230400);      //begin Serial comm
-
+  Serial.setTimeout(2);
   for (int g= 0;g<256;g++)
   {
     emptyBuffer[g] = 0;  
@@ -973,7 +973,7 @@ void loop()
 //------------------------- Timer interrupt ---------------------------------
 
 ISR(TIMER2_COMPA_vect){
-
+  
   // Start ADC Conversions 
   //do this at the begining since ADC can work in 
   //paralel with this timer handler
@@ -1009,62 +1009,18 @@ ISR(TIMER2_COMPA_vect){
 //This is called when ADC conversion is complete.
 ISR(ADC_vect)           
  {
-
-     
       samplingBuffer[lastADCIndex] = ADCL | (ADCH << 8);// store lower and higher byte of ADC
-
-      if(adcInterruptIndex <numberOfChannels)
+      lastADCIndex++;
+      if(lastADCIndex==6)
       {
-        //we have to sample channels that are currently in use
-        //channels that needs to be sampled every period of timer
-
-         ADMUX =  B01000000 | regularChannelsIndex; //set ADC to A0 channel
-         lastADCIndex = regularChannelsIndex;
-         regularChannelsIndex++;
-         if(regularChannelsIndex == numberOfChannels)
-         {
-            regularChannelsIndex = 0;
-         }
+          lastADCIndex =0;
+           ADMUX =  B01000000;
       }
       else
       {
-          //we have to sample channels that are not currently in use
-          //we sample them at slower pace, one each timer period (round robin scheme)
-
-           ADMUX =  B01000000 | roundRobinChannelIndex; //Select ADC Channel/ REFS0 set means AVcc is reference
-           lastADCIndex = roundRobinChannelIndex;
-           roundRobinChannelIndex++;
-           if(roundRobinChannelIndex==MAX_NUMBER_OF_CHANNELS)
-           {
-             roundRobinChannelIndex = numberOfChannels;  
-           }
-      
-      }    
-    
-      adcInterruptIndex++;
-      if(adcInterruptIndex>numberOfChannels)
-      {
-          //if we sampled all channels that are in use
-          //and one unused channel do not trigger ADC
-          //but whait for next timer period and timer will trigger it
-          adcInterruptIndex = 0;
-
+        ADMUX =  B01000000 | lastADCIndex;
+        ADCSRA |=B01000000;    // Start ADC Conversions 
       }
-      else
-      {
-        //start sampling of ADC for next channel lastADCIndex
-        //used or unused
-        if(adcInterruptIndex<6)
-        {
-          ADCSRA |=B01000000;    // Start ADC Conversions  
-        }
-        else
-        {
-          adcInterruptIndex = 0;
-        }
-      }
-
- 
  } 
 
 
