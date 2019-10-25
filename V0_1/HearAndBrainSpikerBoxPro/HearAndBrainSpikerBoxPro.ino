@@ -76,6 +76,11 @@ char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 #define EVENT_4_PIN 17
 #define EVENT_5_PIN 18
 
+//these Joystick IO pins are on PORTD
+#define JOYSTICK_CL B00000100
+#define JOYSTICK_TX B00001000
+#define JOYSTICK_RX B00010000
+
 
 //D8 port B 0. bit
 #define SHIFT_LATCH_PIN 8                       //latch pin for shift register
@@ -292,6 +297,23 @@ uint16_t blinkingBoardDetectionTimer = 0;
 int smoothDataRate = 50;
 byte emptyBuffer[256];
 
+
+uint8_t TX_joystick_buffer = 0;
+uint8_t RX_joystick_buffer = 0;
+uint8_t last_joystick_state = 0;
+uint8_t new_joystick_state = 0;
+#define BITS_BETWEEN_TWO_SERIAL 20
+#define SAMPLES_FOR_ONE_BIT 2
+#define HALF_SAMPLES_FOR_ONE_BIT 1
+uint8_t bits_counter = BITS_BETWEEN_TWO_SERIAL;
+uint8_t one_bit_counter = SAMPLES_FOR_ONE_BIT;
+uint8_t lastReceivedButtons = 0;
+uint8_t sendJoystickMessage = 0;
+//uint16_t ledCounters[8];
+uint8_t hostJoystickState = 0;
+uint8_t joystickMessage[8];
+
+
 void setup()
 {
   Serial.begin(230400);      //begin Serial comm
@@ -311,7 +333,14 @@ void setup()
   pinMode(EVENT_3_PIN, INPUT);
 
   
-
+  joystickMessage[0]= 'J';
+  joystickMessage[1]= 'O';
+  joystickMessage[2]= 'Y';
+  joystickMessage[3]= ':';
+  joystickMessage[4]= 240;//11110000 - since we want to avoid sending zero because issue with zero
+  joystickMessage[5]= 240;//11110000 - terminated strings we will divide one byte to two bytes and use just 4 LSB
+  joystickMessage[6]= ';';
+  joystickMessage[7]= 0;
 
 
   //status LEDs
@@ -375,6 +404,8 @@ void setupOperationMode(void)
         case OPERATION_MODE_JOYSTICK:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 3;
+            pinMode(EVENT_1_PIN, OUTPUT);//clock for joystick
+            pinMode(EVENT_2_PIN, OUTPUT);//TX for joystick
             break;
         case OPERATION_MODE_HAMMER:
             OCR2A = SAMPLE_RATE_1000;
@@ -693,6 +724,56 @@ void loop()
         {
             case OPERATION_MODE_JOYSTICK:
 
+                  one_bit_counter--;
+                  if(one_bit_counter == HALF_SAMPLES_FOR_ONE_BIT)
+                  {
+          
+                          PORTD &= ~(JOYSTICK_CL);
+                          if(bits_counter<8)
+                          {
+                              RX_joystick_buffer = RX_joystick_buffer<<1;
+                              if(PORTD & JOYSTICK_RX)
+                              {
+                                  RX_joystick_buffer++;
+                              }
+                          }
+          
+                          if(bits_counter==0)
+                          {
+                              bits_counter = BITS_BETWEEN_TWO_SERIAL;
+                              TX_joystick_buffer = RX_joystick_buffer | hostJoystickState;
+                              if(RX_joystick_buffer != lastReceivedButtons)
+                              {
+                                  joystickMessage[4] = 0xF0;
+                                  joystickMessage[4] |= RX_joystick_buffer & 0x0F;
+                                  joystickMessage[5] = 0xF0;
+                                  joystickMessage[5] |= (RX_joystick_buffer>>4) & 0x0F;
+                                  sendJoystickMessage = 1;
+                              }
+                              lastReceivedButtons = RX_joystick_buffer;
+                          }
+                  }
+                  if(one_bit_counter==0)
+                  {
+                      bits_counter--;
+                      if(bits_counter<8)
+                      {
+          
+                          if((TX_joystick_buffer>>bits_counter) & 1)
+                          {
+                              PORTD |= JOYSTICK_TX;
+                          }
+                          else
+                          {
+                              PORTD &= ~JOYSTICK_TX;
+                          }
+                          PORTD |= JOYSTICK_CL;
+                      }
+          
+                      one_bit_counter = SAMPLES_FOR_ONE_BIT;
+          
+                  }
+
                 break;
             case OPERATION_MODE_DEFAULT:
             case OPERATION_MODE_FIVE_DIGITAL:
@@ -850,7 +931,11 @@ void loop()
                 break;
         }
 
-
+        if(sendJoystickMessage==1)
+        {
+          sendJoystickMessage =0;
+          sendMessage(joystickMessage);
+        }
 
      //-------------------------------- MAIN LOOP calculate what diode needs to be ON for VU meter ---------------------------------------
      //we calculate one VU meter at per period of timer since it takes too long to calculate all VU meters in one pass
@@ -931,6 +1016,22 @@ void loop()
               if(*separator == 'b')//if we received command for impuls
               {
                 sendMessage(CURRENT_SHIELD_TYPE);
+              }
+              //last char from ledon
+              if (*separator == 'n')
+              {
+                 //jump one after "ledon:"
+                 separator = separator+2;
+                 int indexOfLedToLightUp = *separator-48;//get index of led from ASCII to int
+                 hostJoystickState |= 0x1<<indexOfLedToLightUp;
+
+              }
+              // last char from ledoff
+              if (*separator == 'f')
+              {
+                separator = separator+2;
+                int indexOfLedToLightUp = *separator-48;//get index of led from ASCII to int
+                hostJoystickState &= ~(0x1<<indexOfLedToLightUp);
               }
               if(*separator == 'd')//last char from "board"
               {
