@@ -752,7 +752,6 @@ void loop()
                           RX_joystick_buffer = RX_joystick_buffer<<1;
                           if(digitalRead(EVENT_3_PIN)==HIGH)
                           {
-                            shiftRegByte = 255;
                               RX_joystick_buffer++; 
                           }
                       }
