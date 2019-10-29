@@ -294,7 +294,7 @@ uint16_t blinkingBoardDetectionTimer = 0;
 #define ENCODER_DEBUNCE_TIME 1500
 #define BLINKING_ENCODER_DEBUNCE_TIME 300
 
-int smoothDataRate = 50;
+int smoothDataRate = 20;
 byte emptyBuffer[256];
 
 
@@ -302,9 +302,9 @@ uint8_t TX_joystick_buffer = 0;
 uint8_t RX_joystick_buffer = 0;
 uint8_t last_joystick_state = 0;
 uint8_t new_joystick_state = 0;
-#define BITS_BETWEEN_TWO_SERIAL 20
-#define SAMPLES_FOR_ONE_BIT 2
-#define HALF_SAMPLES_FOR_ONE_BIT 1
+#define BITS_BETWEEN_TWO_SERIAL 13
+#define SAMPLES_FOR_ONE_BIT 1
+#define HALF_SAMPLES_FOR_ONE_BIT 0
 uint8_t bits_counter = BITS_BETWEEN_TWO_SERIAL;
 uint8_t one_bit_counter = SAMPLES_FOR_ONE_BIT;
 uint8_t lastReceivedButtons = 0;
@@ -406,6 +406,7 @@ void setupOperationMode(void)
             numberOfChannels = 3;
             pinMode(EVENT_1_PIN, OUTPUT);//clock for joystick
             pinMode(EVENT_2_PIN, OUTPUT);//TX for joystick
+            pinMode(EVENT_3_PIN, INPUT);//RX for joystick
             break;
         case OPERATION_MODE_HAMMER:
             OCR2A = SAMPLE_RATE_1000;
@@ -547,7 +548,7 @@ void loop()
 
 
 
-    if((currentEncoderVoltage - lastEncoderVoltage)>10 || (lastEncoderVoltage - currentEncoderVoltage)>10)
+    if((currentEncoderVoltage - lastEncoderVoltage)>100 || (lastEncoderVoltage - currentEncoderVoltage)>100)
     {
           debounceEncoderTimer = ENCODER_DEBUNCE_TIME;
           waitingForEncoder = 1;
@@ -719,61 +720,61 @@ void loop()
 
       //--------------------- BOARD EXECUTION -------------------------------
 
-
+        
         switch(operationMode)
         {
             case OPERATION_MODE_JOYSTICK:
 
-                  one_bit_counter--;
-                  if(one_bit_counter == HALF_SAMPLES_FOR_ONE_BIT)
+                  if(one_bit_counter==1)
                   {
-          
-                          PORTD &= ~(JOYSTICK_CL);
-                          if(bits_counter<8)
-                          {
-                              RX_joystick_buffer = RX_joystick_buffer<<1;
-                              if(PORTD & JOYSTICK_RX)
-                              {
-                                  RX_joystick_buffer++;
-                              }
-                          }
-          
-                          if(bits_counter==0)
-                          {
-                              bits_counter = BITS_BETWEEN_TWO_SERIAL;
-                              TX_joystick_buffer = RX_joystick_buffer | hostJoystickState;
-                              if(RX_joystick_buffer != lastReceivedButtons)
-                              {
-                                  joystickMessage[4] = 0xF0;
-                                  joystickMessage[4] |= RX_joystick_buffer & 0x0F;
-                                  joystickMessage[5] = 0xF0;
-                                  joystickMessage[5] |= (RX_joystick_buffer>>4) & 0x0F;
-                                  sendJoystickMessage = 1;
-                              }
-                              lastReceivedButtons = RX_joystick_buffer;
-                          }
+                    one_bit_counter = 0;
+
+                    bits_counter--;
+                    if(bits_counter<8)
+                    {
+        
+                        if((TX_joystick_buffer>>bits_counter) & 1)
+                        {
+                            PORTD |= JOYSTICK_TX;
+                        }
+                        else
+                        {
+                            PORTD &= ~JOYSTICK_TX;
+                        }
+                       PORTD |= JOYSTICK_CL;
+                    }
                   }
-                  if(one_bit_counter==0)
+                  else
                   {
-                      bits_counter--;
+                      one_bit_counter =1;
                       if(bits_counter<8)
                       {
-          
-                          if((TX_joystick_buffer>>bits_counter) & 1)
+                          RX_joystick_buffer = RX_joystick_buffer<<1;
+                          if(digitalRead(EVENT_3_PIN)==HIGH)
                           {
-                              PORTD |= JOYSTICK_TX;
+                            shiftRegByte = 255;
+                              RX_joystick_buffer++; 
                           }
-                          else
-                          {
-                              PORTD &= ~JOYSTICK_TX;
-                          }
-                          PORTD |= JOYSTICK_CL;
                       }
-          
-                      one_bit_counter = SAMPLES_FOR_ONE_BIT;
-          
-                  }
+                      PORTD &= ~(JOYSTICK_CL);
 
+
+                      //hostJoystickState = 171;
+                      if(bits_counter==0)
+                      {
+                          bits_counter = BITS_BETWEEN_TWO_SERIAL;
+                          TX_joystick_buffer = RX_joystick_buffer | hostJoystickState;
+                          if(RX_joystick_buffer != lastReceivedButtons)
+                          {
+                              joystickMessage[4] = 0xF0;
+                              joystickMessage[4] |= RX_joystick_buffer & 0x0F;
+                              joystickMessage[5] = 0xF0;
+                              joystickMessage[5] |= (RX_joystick_buffer>>4) & 0x0F;
+                              sendJoystickMessage = 1;
+                          }
+                          lastReceivedButtons = RX_joystick_buffer;
+                      }   
+                  }
                 break;
             case OPERATION_MODE_DEFAULT:
             case OPERATION_MODE_FIVE_DIGITAL:
