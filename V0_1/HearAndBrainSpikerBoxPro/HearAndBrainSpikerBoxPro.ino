@@ -1,6 +1,6 @@
 /*
   * ----------------------------------------------------------------------------------------------------
-  * Backyard Brains Sep. 2019
+  * Backyard Brains Oct. 2019
   * Written by Stanislav Mircic
   * 
   * Made to work with ATmega328 (Arduino UNO)
