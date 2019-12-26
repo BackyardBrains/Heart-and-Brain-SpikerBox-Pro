@@ -255,17 +255,17 @@ void timer1_timer2_init()
 
 //3.3V/1023 = 0.00322580645 V for one AD unit
 //How many AD units is each threshold
-//0.499V //0.75
+//0.499V //0.75 //155
 #define EXP_BOARD_VOLTAGE_LEVEL_1 155
-//0.999V //1.51
+//0.999V //1.51 //310
 #define EXP_BOARD_VOLTAGE_LEVEL_2 310
-//1.499V //2.27
+//1.499V //2.27 //465
 #define EXP_BOARD_VOLTAGE_LEVEL_3 465
-//1.999V //3.03
+//1.999V //3.03 //620
 #define EXP_BOARD_VOLTAGE_LEVEL_4 620
-//2.49V //3.78
+//2.49V //3.78 //775
 #define EXP_BOARD_VOLTAGE_LEVEL_5 775
-//2.99V //4.54
+//2.99V //4.54 //930
 #define EXP_BOARD_VOLTAGE_LEVEL_6 930
 
 uint8_t operationMode =0;
@@ -600,17 +600,7 @@ void loop()
               }
               else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_3) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_4))
               {
-                  //third board - dev board
-                  if(operationMode != OPERATION_MODE_FIVE_DIGITAL)
-                  {
-                      operationMode = OPERATION_MODE_FIVE_DIGITAL;
-                      
-                      setupOperationMode();
-                      sendMessage("BRD:0;");
-                  }
-              }
-              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_4) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_5))
-              {
+
                   //forth board
                   if(operationMode != OPERATION_MODE_HAMMER)
                   {
@@ -619,8 +609,9 @@ void loop()
                       setupOperationMode();
                       sendMessage("BRD:4;");
                   }
+                 
               }
-              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_5) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_6))
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_4) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_5))
               {
                   //fifth board
       
@@ -632,6 +623,17 @@ void loop()
                       sendMessage("BRD:5;");
       
                   }
+              }
+              else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_5) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_6))
+              {
+                if(operationMode != OPERATION_MODE_DEFAULT)
+                {
+                    //sixth board
+                    
+                    operationMode = OPERATION_MODE_DEFAULT;
+                    setupOperationMode();
+                    sendMessage("BRD:0;");
+                }
               }
               else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_6))
               {
