@@ -1,7 +1,9 @@
 /*
   * ----------------------------------------------------------------------------------------------------
-  * Backyard Brains 24 Dec. 2019
+  * Backyard Brains Dec. 2019
   * Written by Stanislav Mircic
+  * P300 experiment code with all other functionality 
+  * of normal Heart and Brain SpikerBox Pro
   * 
   * Made to work with ATmega328 (Arduino UNO)
   * Made for Heart and Brain SpikerBox Pro version V0.4
@@ -43,6 +45,24 @@
 #define CURRENT_SHIELD_TYPE "HWT:HBSBPRO;"
 
 
+#define TONE_PERIOD_MS 2000                 //max 6000
+#define TONE_DURATION_MS 300                //max BEEP_PERIOD_MS
+#define CHANCE_OF_ODD_TONE_PERCENT 10       //max 100
+#define FREQUENCY_OF_NORMAL_TONE_HZ 300     //Frequency of normal tone
+#define FREQUENCY_OF_ODD_TONE_HZ 500        //Frequency of odd tone 
+
+
+unsigned int chancesOfOddToneInMaxRND = 6553;
+unsigned int periodOfNormalWave = 4;
+unsigned int periodOfOddWave = 2;
+unsigned int randNumber;
+
+unsigned int counterForTonePeriod = 1;
+unsigned int counterForToneDuration = 0;
+unsigned int currentPeriodOfToneWave = 0;
+unsigned int counterForWavePeriod = 0;
+
+
 //operation modes
 #define OPERATION_MODE_DEFAULT 0
 #define OPERATION_MODE_BNC 1
@@ -79,19 +99,36 @@ char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 #define JOYSTICK_TX B00001000
 #define JOYSTICK_RX B00010000
 
+//speaker pin 6 on port D
+#define SPEAKER_BIT B01000000
+#define NOT_SPEAKER_BIT B10111111
+#define SPEAKER_PIN 6
+
 
 //D8 port B 0. bit
-#define GREEN_EXP_PIN 8                       //green led for experiment pin
-#define GREEN_EXP_BIT B00000001
-#define NOT_GREEN_EXP_BIT B11111110
+#define RED_EXP_PIN 8                       //green led for experiment pin
+#define RED_EXP_BIT B00000001
+#define NOT_RED_EXP_BIT B11111110
+
 //D9 port B 1. bit
-#define RED_EXP_PIN 9                       //red led for experiment pin
-#define RED_EXP_BIT B00000010
-#define NOT_RED_EXP_BIT B11111101
+#define GREEN_EXP_PIN 9                       //red led for experiment pin
+#define GREEN_EXP_BIT B00000010
+#define NOT_GREEN_EXP_BIT B11111101
+
 //D11 port B 3. bit
 #define BUTTON_PIN 7                           //button 
 #define BUTTON_BIT B10000000
 #define NOT_BUTTON_BIT B01111111
+byte buttonPressed = 0;
+volatile uint16_t counterButtonPressed = 0;
+byte P300Active = 0;
+#define LONG_PRESS_IN_100uS 1200
+#define SHORT_PRESS_IN_100uS 1100
+#define EXPERIMENT_MODE_SOUND 1
+#define EXPERIMENT_MODE_LIGHT 2
+byte modeOfP300Experiment = EXPERIMENT_MODE_SOUND;
+
+
 //D10 Port B 2.bit
 #define OSCILATOR_PIN 10                        //5kHz oscilator pin
 
@@ -148,10 +185,7 @@ volatile  byte adcInterruptIndex;
 //result of ADC when ADC "finish" interrupt occur 
 volatile  byte lastADCIndex;
 
-// Output Compare Registers  value = (16*10^6) / (Fs*8) - 1  set to 1999 for 1000 Hz 
-// sampling, set to 3999 for 500 Hz sampling, set to 7999 for 250Hz sampling, 
-// 198 for 10000 Hz Sampling. Used for main timer that defines period of measurements
-int interrupt_Number = 198;
+
 
 //main buffer that contains real measurements
 volatile uint16_t samplingBuffer[MAX_NUMBER_OF_CHANNELS];
@@ -162,8 +196,8 @@ volatile uint16_t samplingBuffer[MAX_NUMBER_OF_CHANNELS];
 byte outputBufferReady = 0;
 //Output frame buffer that contains measured EMG data formated according to 
 //SpikeRecorder serial protocol
-volatile byte headout = 0;
-volatile byte tailout = 0;
+byte headout = 0;
+byte tailout = 0;
 byte outputFrameBuffer[256];
 
 
@@ -255,17 +289,17 @@ void timer1_timer2_init()
 
 //3.3V/1023 = 0.00322580645 V for one AD unit
 //How many AD units is each threshold
-//0.499V //0.75 //155
+//0.499V //0.75
 #define EXP_BOARD_VOLTAGE_LEVEL_1 155
-//0.999V //1.51 //310
+//0.999V //1.51
 #define EXP_BOARD_VOLTAGE_LEVEL_2 310
-//1.499V //2.27 //465
+//1.499V //2.27
 #define EXP_BOARD_VOLTAGE_LEVEL_3 465
-//1.999V //3.03 //620
+//1.999V //3.03
 #define EXP_BOARD_VOLTAGE_LEVEL_4 620
-//2.49V //3.78 //775
+//2.49V //3.78
 #define EXP_BOARD_VOLTAGE_LEVEL_5 775
-//2.99V //4.54 //930
+//2.99V //4.54
 #define EXP_BOARD_VOLTAGE_LEVEL_6 930
 
 uint8_t operationMode =0;
@@ -297,17 +331,19 @@ uint8_t sendJoystickMessage = 0;
 //uint16_t ledCounters[8];
 uint8_t hostJoystickState = 0;
 uint8_t joystickMessage[8];
-
+float tempCalculationNumber;
 
 void setup()
 {
   Serial.begin(230400);      //begin Serial comm
   Serial.setTimeout(2);
-
   for (int g= 0;g<256;g++)
   {
     emptyBuffer[g] = 0;  
   }
+
+  tempCalculationNumber = ((float)CHANCE_OF_ODD_TONE_PERCENT)/100.0;
+  chancesOfOddToneInMaxRND = tempCalculationNumber*65535.0;
 
   //set pins for LEDs
   pinMode(GREEN_EXP_PIN, OUTPUT);
@@ -332,6 +368,8 @@ void setup()
   joystickMessage[7]= 0;
 
 
+  pinMode(SPEAKER_PIN,OUTPUT);
+  
   //status LEDs
   pinMode(OSCILATOR_PIN, OUTPUT);//5kHz oscilator
   pinMode(BLUE_LED_PIN, OUTPUT);//blue LED
@@ -340,7 +378,6 @@ void setup()
   digitalWrite(BLUE_LED_PIN, HIGH);//turn OFF (inverted)
   digitalWrite(GREEN_LED_PIN, HIGH);//turn OFF (inverted)
   digitalWrite(RED_LED_PIN, HIGH);//turn OFF (inverted)
-  
   
 
   //stop interrupts
@@ -366,9 +403,7 @@ void setup()
    lastADCIndex = 0;
 
    // Enable Global Interrupts
-   sei();            
-
-
+   sei();                   
 }
 
 
@@ -427,12 +462,23 @@ void setupOperationMode(void)
 
 
 
-//----------------------------- Main Loop ----------------------------------------------------
+//
+// Create a random integer from 0 - 65535
+//
+unsigned int rng() {
+  static unsigned int y = 0;
+  y += micros(); // seeded with changing number
+  y ^= y << 2; y ^= y >> 7; y ^= y << 7;
+  return (y);
+} 
+
+
+//----------------------------- Main Loop ---------------------------------------------------------
 void loop()
 {
    if(outputBufferReady == 1)//if we have new data
    {
-      //------------------------- SEND DATA -------------------------------------
+      //------------------------- SEND DATA -------------------------------------------------------
       //write data from outputFrameBuffer
       int sent=0;
       while(headout!=tailout)
@@ -441,10 +487,8 @@ void loop()
         Serial.write(outputFrameBuffer[tailout]);
         tailout++;
       }
-        
       if(sent>0)
       {
-
         int diff = smoothDataRate-sent;
         if(diff>0)
         {
@@ -453,8 +497,149 @@ void loop()
       }
       outputBufferReady = 0;
 
+      //------------------------------  GENERATE TONE FOR P300 --------------------------------------
+
+      //------------------------------ GENERATE SOUND ------------------------------
+      if(P300Active)
+      {
+            randNumber = rng();
+            counterForTonePeriod--;
+            if(counterForTonePeriod==0)
+            {
+                counterForTonePeriod = TONE_PERIOD_MS;
+                if(randNumber<chancesOfOddToneInMaxRND)
+                {
+                      sendMessage("EVNT:2;");
+                      currentPeriodOfToneWave = periodOfOddWave;
+                      if(modeOfP300Experiment == EXPERIMENT_MODE_SOUND)
+                      {
+                            PORTD ^= SPEAKER_BIT;
+                            PORTB &= NOT_GREEN_EXP_BIT;
+                            PORTB &= NOT_RED_EXP_BIT;
+                      }
+                      else
+                      {
+                          PORTB |= RED_EXP_BIT;
+                      }
+                }
+                else
+                {
+                      sendMessage("EVNT:1;");
+                      currentPeriodOfToneWave = periodOfNormalWave;
+                      if(modeOfP300Experiment == EXPERIMENT_MODE_SOUND)
+                      {
+                            PORTD ^= SPEAKER_BIT;
+                            PORTB &= NOT_GREEN_EXP_BIT;
+                            PORTB &= NOT_RED_EXP_BIT;
+                      }
+                      else
+                      {
+                          PORTB |= GREEN_EXP_BIT;
+                      }
+                }
+                
+               
+                counterForWavePeriod = currentPeriodOfToneWave;
+                counterForToneDuration = TONE_DURATION_MS;
+            }
+      
+            if(counterForToneDuration>0)
+            {
+              counterForToneDuration--;
+              counterForWavePeriod--;
+              if(counterForWavePeriod ==0)
+              {
+                //flip tone output
+                if(modeOfP300Experiment == EXPERIMENT_MODE_SOUND)
+                {
+                    PORTD ^= SPEAKER_BIT;
+                }
+                counterForWavePeriod = currentPeriodOfToneWave;
+              }
+            }
+            else
+            {
+              //Turn off tone generator  
+              PORTD &= NOT_SPEAKER_BIT;
+              PORTB &= NOT_GREEN_EXP_BIT;
+              PORTB &= NOT_RED_EXP_BIT;
+            }
+      }
+      else
+      {
+          PORTD &= NOT_SPEAKER_BIT;
+          PORTB &= NOT_GREEN_EXP_BIT;
+          PORTB &= NOT_RED_EXP_BIT;
+      }
+      
 
 
+
+      //-------------------------------- BUTON FUNCTIONALITY --------------------------------------
+
+
+      if(PIND & BUTTON_BIT)
+      {
+        
+          if(buttonPressed)
+          {
+              if(counterButtonPressed>0)
+              {
+                
+                    counterButtonPressed = counterButtonPressed-1;
+
+              }
+              if(counterButtonPressed==1)
+              {
+                 
+                    if(modeOfP300Experiment==EXPERIMENT_MODE_SOUND)
+                    {
+                        
+                        modeOfP300Experiment = EXPERIMENT_MODE_LIGHT;
+                    }
+                    else
+                    {
+                        modeOfP300Experiment = EXPERIMENT_MODE_SOUND;
+                    }
+              }
+            
+          }
+          else
+          {
+            
+            counterButtonPressed = LONG_PRESS_IN_100uS;
+            buttonPressed = 1;
+            
+          }
+      }
+      else
+      {
+       
+          if(buttonPressed)
+          {
+            
+            if(counterButtonPressed<SHORT_PRESS_IN_100uS)
+            {
+                
+              
+                buttonPressed = 0;
+                if(counterButtonPressed>0)
+                {
+                      if(P300Active)
+                      {
+                        
+                          P300Active = 0;
+                      }
+                      else
+                      {
+                        
+                          P300Active = 1;
+                      }
+                }
+            }
+          }
+        
+      }
 
       // ------------------------------- CHECK THE POWER RAIL VOLTAGE -------------------------------
       uint16_t tempADCresult = samplingBuffer[BATTERY_BUFFER_INDEX];//battery ADC result
@@ -600,7 +785,6 @@ void loop()
               }
               else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_3) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_4))
               {
-
                   //forth board
                   if(operationMode != OPERATION_MODE_HAMMER)
                   {
@@ -609,11 +793,10 @@ void loop()
                       setupOperationMode();
                       sendMessage("BRD:4;");
                   }
-                 
               }
               else if((currentEncoderVoltage >= EXP_BOARD_VOLTAGE_LEVEL_4) && (currentEncoderVoltage < EXP_BOARD_VOLTAGE_LEVEL_5))
               {
-                  //fifth board
+                 //fifth board
       
                   if(operationMode != OPERATION_MODE_JOYSTICK)
                   {
@@ -933,8 +1116,6 @@ void loop()
         }
 
 
-
-
    }//end of (outputBufferReady == 1)
 
 
@@ -948,18 +1129,16 @@ void loop()
       inString.toCharArray(commandBuffer, SIZE_OF_COMMAND_BUFFER);
       commandBuffer[inString.length()] = 0;
       
+      
       // breaks string str into a series of tokens using delimiter ";"
       // Namely split strings into commands
       char* command = strtok(commandBuffer, ";");
       while (command != 0)
       {
-
           // Split the command in 2 parts: name and value
           char* separator = strchr(command, ':');
           if (separator != 0)
           {
-
-
               // Actually split the string in 2: replace ':' with 0
               *separator = 0;
               --separator;
@@ -970,7 +1149,6 @@ void loop()
               }
               if(*separator == 'b')//if we received command for impuls
               {
-                
                 sendMessage(CURRENT_SHIELD_TYPE);
               }
               //last char from ledon
