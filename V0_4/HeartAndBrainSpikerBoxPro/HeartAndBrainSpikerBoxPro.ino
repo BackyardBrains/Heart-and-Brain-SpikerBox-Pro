@@ -1,12 +1,13 @@
 /*
   * ----------------------------------------------------------------------------------------------------
-  * Backyard Brains Dec. 2019
+  * Backyard Brains Feb. 2020
   * Written by Stanislav Mircic
   * P300 experiment code with all other functionality 
   * of normal Heart and Brain SpikerBox Pro
   * 
   * Made to work with ATmega328 (Arduino UNO)
   * Made for Heart and Brain SpikerBox Pro version V0.4
+  * Random number generator fixed
   * 
   * A0 - EEG signal from bioamplifier CH1
   * A1 - EEG signal from bioamplifier CH2
