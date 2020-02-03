@@ -161,7 +161,7 @@ unsigned int blinkingLowVoltageTimer = 0;
 #define RED_LED B00100000
 #define NOT_RED_LED B11011111
 
-
+uint8_t numberOfEventsUntillOdd = 0;
 
 //---------------------- ADC sampling related variable/constants
 #define MAX_NUMBER_OF_CHANNELS 6                //Maximum number of analog channels
@@ -333,6 +333,17 @@ uint8_t hostJoystickState = 0;
 uint8_t joystickMessage[8];
 float tempCalculationNumber;
 
+
+//
+// Create a random integer from 0 - 65535
+//
+unsigned int rng() {
+  static unsigned int y = 0;
+  y += micros(); // seeded with changing number
+  y ^= y << 2; y ^= y >> 7; y ^= y << 7;
+  return (y);
+} 
+
 void setup()
 {
   Serial.begin(230400);      //begin Serial comm
@@ -380,6 +391,8 @@ void setup()
   digitalWrite(RED_LED_PIN, HIGH);//turn OFF (inverted)
   
 
+  randNumber = rng();
+  numberOfEventsUntillOdd = 3+(randNumber>>12);
   //stop interrupts
   cli();
  
@@ -462,15 +475,6 @@ void setupOperationMode(void)
 
 
 
-//
-// Create a random integer from 0 - 65535
-//
-unsigned int rng() {
-  static unsigned int y = 0;
-  y += micros(); // seeded with changing number
-  y ^= y << 2; y ^= y >> 7; y ^= y << 7;
-  return (y);
-} 
 
 
 //----------------------------- Main Loop ---------------------------------------------------------
@@ -484,7 +488,7 @@ void loop()
       while(headout!=tailout)
       {
         sent++;
-        Serial.write(outputFrameBuffer[tailout]);
+        //Serial.write(outputFrameBuffer[tailout]);
         tailout++;
       }
       if(sent>0)
@@ -492,7 +496,7 @@ void loop()
         int diff = smoothDataRate-sent;
         if(diff>0)
         {
-              Serial.write(emptyBuffer,diff);
+              //Serial.write(emptyBuffer,diff);
         }  
       }
       outputBufferReady = 0;
@@ -500,16 +504,21 @@ void loop()
       //------------------------------  GENERATE TONE FOR P300 --------------------------------------
 
       //------------------------------ GENERATE SOUND ------------------------------
+
       if(P300Active)
       {
-            randNumber = rng();
+            
             counterForTonePeriod--;
             if(counterForTonePeriod==0)
             {
+                numberOfEventsUntillOdd--;
                 counterForTonePeriod = TONE_PERIOD_MS;
-                if(randNumber<chancesOfOddToneInMaxRND)
+                if(numberOfEventsUntillOdd==0)
                 {
                       sendMessage("EVNT:2;");
+                      randNumber = rng();
+                      numberOfEventsUntillOdd = 3+(randNumber>>12);
+
                       currentPeriodOfToneWave = periodOfOddWave;
                       if(modeOfP300Experiment == EXPERIMENT_MODE_SOUND)
                       {
@@ -524,6 +533,7 @@ void loop()
                 }
                 else
                 {
+
                       sendMessage("EVNT:1;");
                       currentPeriodOfToneWave = periodOfNormalWave;
                       if(modeOfP300Experiment == EXPERIMENT_MODE_SOUND)
@@ -541,6 +551,7 @@ void loop()
                
                 counterForWavePeriod = currentPeriodOfToneWave;
                 counterForToneDuration = TONE_DURATION_MS;
+                
             }
       
             if(counterForToneDuration>0)
