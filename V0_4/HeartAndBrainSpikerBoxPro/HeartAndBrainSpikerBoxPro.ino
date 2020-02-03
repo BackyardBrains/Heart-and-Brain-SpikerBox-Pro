@@ -489,7 +489,7 @@ void loop()
       while(headout!=tailout)
       {
         sent++;
-        //Serial.write(outputFrameBuffer[tailout]);
+        Serial.write(outputFrameBuffer[tailout]);
         tailout++;
       }
       if(sent>0)
@@ -497,7 +497,7 @@ void loop()
         int diff = smoothDataRate-sent;
         if(diff>0)
         {
-              //Serial.write(emptyBuffer,diff);
+              Serial.write(emptyBuffer,diff);
         }  
       }
       outputBufferReady = 0;
