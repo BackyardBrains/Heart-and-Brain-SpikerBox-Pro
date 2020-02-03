@@ -8,6 +8,7 @@
   * Made to work with ATmega328 (Arduino UNO)
   * Made for Heart and Brain SpikerBox Pro version V0.4
   * Random number generator fixed
+  * Baud rate changed
   * 
   * A0 - EEG signal from bioamplifier CH1
   * A1 - EEG signal from bioamplifier CH2
@@ -347,7 +348,7 @@ unsigned int rng() {
 
 void setup()
 {
-  Serial.begin(230400);      //begin Serial comm
+  Serial.begin(222222);      //begin Serial comm
   Serial.setTimeout(2);
   for (int g= 0;g<256;g++)
   {
