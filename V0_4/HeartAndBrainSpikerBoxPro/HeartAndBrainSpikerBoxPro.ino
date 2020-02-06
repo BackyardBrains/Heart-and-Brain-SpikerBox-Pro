@@ -315,8 +315,8 @@ uint16_t blinkingBoardDetectionTimer = 0;
 #define ENCODER_DEBUNCE_TIME 1500
 #define BLINKING_ENCODER_DEBUNCE_TIME 300
 
-int smoothDataRate = 20;
-byte emptyBuffer[256];
+int smoothDataRate = 18;
+volatile byte emptyBuffer[256];
 
 
 uint8_t TX_joystick_buffer = 0;
@@ -498,7 +498,7 @@ void loop()
         int diff = smoothDataRate-sent;
         if(diff>0)
         {
-              Serial.write(emptyBuffer,diff);
+              Serial.write((byte*)emptyBuffer,diff);
         }  
       }
       outputBufferReady = 0;
