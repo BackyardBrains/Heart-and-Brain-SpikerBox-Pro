@@ -354,7 +354,8 @@ void setup()
   {
     emptyBuffer[g] = 0;  
   }
-
+  smoothDataRate = 0;
+  
   tempCalculationNumber = ((float)CHANCE_OF_ODD_TONE_PERCENT)/100.0;
   chancesOfOddToneInMaxRND = tempCalculationNumber*65535.0;
 
@@ -437,10 +438,12 @@ void setupOperationMode(void)
         case OPERATION_MODE_BNC:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
         break;
         case OPERATION_MODE_FIVE_DIGITAL:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
             break;
         case OPERATION_MODE_JOYSTICK:
             OCR2A = SAMPLE_RATE_1000;
@@ -448,22 +451,30 @@ void setupOperationMode(void)
             pinMode(EVENT_1_PIN, OUTPUT);//clock for joystick
             pinMode(EVENT_2_PIN, OUTPUT);//TX for joystick
             pinMode(EVENT_3_PIN, INPUT);//RX for joystick
+            smoothDataRate = 18;
+            P300Active = 0;
             break;
         case OPERATION_MODE_HAMMER:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 3;
+            smoothDataRate = 18;
+            P300Active = 0;
         break;
         case OPERATION_MODE_MORE_ANALOG:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 4;
+            smoothDataRate = 18;
+            P300Active = 0;
         break;
         case OPERATION_MODE_DEFAULT:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
         break;
         default:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
         break;
     }
     regularChannelsIndex = 0;
