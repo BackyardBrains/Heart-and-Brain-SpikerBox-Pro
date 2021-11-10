@@ -1,6 +1,6 @@
 /*
   * ----------------------------------------------------------------------------------------------------
-  * Backyard Brains Feb. 2020
+  * Backyard Brains Feb. 10. 2020
   * Written by Stanislav Mircic
   * P300 experiment code with all other functionality 
   * of normal Heart and Brain SpikerBox Pro
@@ -9,6 +9,7 @@
   * Made for Heart and Brain SpikerBox Pro version V0.4
   * Random number generator fixed
   * Baud rate changed
+  * Overflow prevented in circular buffer pointers
   * 
   * A0 - EEG signal from bioamplifier CH1
   * A1 - EEG signal from bioamplifier CH2
@@ -198,9 +199,10 @@ volatile uint16_t samplingBuffer[MAX_NUMBER_OF_CHANNELS];
 byte outputBufferReady = 0;
 //Output frame buffer that contains measured EMG data formated according to 
 //SpikeRecorder serial protocol
-byte headout = 0;
-byte tailout = 0;
-byte outputFrameBuffer[256];
+uint16_t headout = 0;
+uint16_t tailout = 0;
+#define SIZE_OF_OUTPUT_BUFFER 256
+byte outputFrameBuffer[SIZE_OF_OUTPUT_BUFFER];
 
 
 #define ESCAPE_SEQUENCE_LENGTH 6
@@ -315,8 +317,8 @@ uint16_t blinkingBoardDetectionTimer = 0;
 #define ENCODER_DEBUNCE_TIME 1500
 #define BLINKING_ENCODER_DEBUNCE_TIME 300
 
-int smoothDataRate = 20;
-byte emptyBuffer[256];
+int smoothDataRate = 18;
+volatile byte emptyBuffer[256];
 
 
 uint8_t TX_joystick_buffer = 0;
@@ -354,7 +356,8 @@ void setup()
   {
     emptyBuffer[g] = 0;  
   }
-
+  smoothDataRate = 0;
+  
   tempCalculationNumber = ((float)CHANCE_OF_ODD_TONE_PERCENT)/100.0;
   chancesOfOddToneInMaxRND = tempCalculationNumber*65535.0;
 
@@ -370,7 +373,7 @@ void setup()
   pinMode(EVENT_2_PIN, INPUT);
   pinMode(EVENT_3_PIN, INPUT);
 
-  
+    
   joystickMessage[0]= 'J';
   joystickMessage[1]= 'O';
   joystickMessage[2]= 'Y';
@@ -437,10 +440,12 @@ void setupOperationMode(void)
         case OPERATION_MODE_BNC:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
         break;
         case OPERATION_MODE_FIVE_DIGITAL:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
             break;
         case OPERATION_MODE_JOYSTICK:
             OCR2A = SAMPLE_RATE_1000;
@@ -448,22 +453,30 @@ void setupOperationMode(void)
             pinMode(EVENT_1_PIN, OUTPUT);//clock for joystick
             pinMode(EVENT_2_PIN, OUTPUT);//TX for joystick
             pinMode(EVENT_3_PIN, INPUT);//RX for joystick
+            smoothDataRate = 18;
+            P300Active = 0;
             break;
         case OPERATION_MODE_HAMMER:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 3;
+            smoothDataRate = 18;
+            P300Active = 0;
         break;
         case OPERATION_MODE_MORE_ANALOG:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 4;
+            smoothDataRate = 18;
+            P300Active = 0;
         break;
         case OPERATION_MODE_DEFAULT:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
         break;
         default:
             OCR2A = SAMPLE_RATE_1000;
             numberOfChannels = 2;
+            smoothDataRate = 0;
         break;
     }
     regularChannelsIndex = 0;
@@ -471,6 +484,8 @@ void setupOperationMode(void)
     roundRobinChannelIndex = numberOfChannels;
     adcInterruptIndex = 0;
     lastADCIndex = 0;
+
+
     
     sei();
 }
@@ -492,13 +507,17 @@ void loop()
         sent++;
         Serial.write(outputFrameBuffer[tailout]);
         tailout++;
+        if(tailout==SIZE_OF_OUTPUT_BUFFER)
+        {
+          tailout = 0;  
+        }
       }
       if(sent>0)
       {
         int diff = smoothDataRate-sent;
         if(diff>0)
         {
-              Serial.write(emptyBuffer,diff);
+              Serial.write((byte*)emptyBuffer,diff);
         }  
       }
       outputBufferReady = 0;
@@ -517,8 +536,11 @@ void loop()
                 counterForTonePeriod = TONE_PERIOD_MS;
                 if(numberOfEventsUntillOdd==0)
                 {
+                      
                       sendMessage("EVNT:2;");
+                     
                       randNumber = rng();
+
                       numberOfEventsUntillOdd = 3+(randNumber>>12);
 
                       currentPeriodOfToneWave = periodOfOddWave;
@@ -1128,7 +1150,7 @@ void loop()
           sendMessage(joystickMessage);
         }
 
-
+ 
    }//end of (outputBufferReady == 1)
 
 
@@ -1232,18 +1254,50 @@ ISR(TIMER2_COMPA_vect){
   //first bit of every byte is used to flag start of the frame
   //so first bit is set only on first byte of frame (| 0x80)
   outputFrameBuffer[headout++]= (samplingBuffer[CH_1_BUFFER_INDEX]>>7)| 0x80;
+  if(headout==SIZE_OF_OUTPUT_BUFFER)
+  {
+    headout = 0;  
+  }
   outputFrameBuffer[headout++]=  samplingBuffer[CH_1_BUFFER_INDEX] & 0x7F;
+  if(headout==SIZE_OF_OUTPUT_BUFFER)
+  {
+    headout = 0;  
+  }
   outputFrameBuffer[headout++]= (samplingBuffer[CH_2_BUFFER_INDEX]>>7)& 0x7F;
+  if(headout==SIZE_OF_OUTPUT_BUFFER)
+  {
+    headout = 0;  
+  }
   outputFrameBuffer[headout++]=  samplingBuffer[CH_2_BUFFER_INDEX] & 0x7F;
+  if(headout==SIZE_OF_OUTPUT_BUFFER)
+  {
+    headout = 0;  
+  }
   if(numberOfChannels>2)
   {
     outputFrameBuffer[headout++]= (samplingBuffer[CH_3_BUFFER_INDEX]>>7)& 0x7F;
+    if(headout==SIZE_OF_OUTPUT_BUFFER)
+    {
+      headout = 0;  
+    }
     outputFrameBuffer[headout++]=  samplingBuffer[CH_3_BUFFER_INDEX] & 0x7F;
+    if(headout==SIZE_OF_OUTPUT_BUFFER)
+    {
+      headout = 0;  
+    }
   }
   if(numberOfChannels>3)
   {
     outputFrameBuffer[headout++]= (samplingBuffer[CH_4_BUFFER_INDEX]>>7)& 0x7F;
+    if(headout==SIZE_OF_OUTPUT_BUFFER)
+    {
+      headout = 0;  
+    }
     outputFrameBuffer[headout++]=  samplingBuffer[CH_4_BUFFER_INDEX] & 0x7F;
+    if(headout==SIZE_OF_OUTPUT_BUFFER)
+    {
+      headout = 0;  
+    }
   }
   
   //signal main loop to send frame
@@ -1286,6 +1340,10 @@ void sendMessage(const char * message)
   for(i=0;i< ESCAPE_SEQUENCE_LENGTH;i++)
   {
       outputFrameBuffer[headout++] = escapeSequence[i];
+      if(headout==SIZE_OF_OUTPUT_BUFFER)
+      {
+        headout = 0;  
+      }
      
   }
 
@@ -1294,14 +1352,20 @@ void sendMessage(const char * message)
   while(message[i] != 0)
   {
       outputFrameBuffer[headout++] = message[i++];
-      
+      if(headout==SIZE_OF_OUTPUT_BUFFER)
+      {
+        headout = 0;  
+      }
   }
 
   //send end of escape sequence
   for(i=0;i< ESCAPE_SEQUENCE_LENGTH;i++)
   {
       outputFrameBuffer[headout++] = endOfescapeSequence[i];
-      
+      if(headout==SIZE_OF_OUTPUT_BUFFER)
+      {
+        headout = 0;  
+      }
   }
    
 }
