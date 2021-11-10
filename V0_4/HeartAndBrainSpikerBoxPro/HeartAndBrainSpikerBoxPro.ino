@@ -123,7 +123,7 @@ char commandBuffer[SIZE_OF_COMMAND_BUFFER];     //receiving command buffer
 #define NOT_BUTTON_BIT B01111111
 byte buttonPressed = 0;
 volatile uint16_t counterButtonPressed = 0;
-byte P300Active = 0;
+byte P300Active = 1;
 #define LONG_PRESS_IN_100uS 1200
 #define SHORT_PRESS_IN_100uS 1100
 #define EXPERIMENT_MODE_SOUND 1
